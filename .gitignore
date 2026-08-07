@@ -1,0 +1,17 @@
+# Exclure les dossiers de téléchargement de Terraform
+.terraform/
+.terraform.lock.hcl
+
+# Exclure les fichiers d'état Terraform (qui contiennent vos mots de passe en clair !)
+*.tfstate
+*.tfstate.backup
+
+# Exclure les variables contenant vos secrets
+*.tfvars
+
+# Exclure les sauvegardes SQL locales de la base de données
+*.sql
+
+# Exclure les fichiers temporaires du système
+.DS_Store
+Thumbs.db
