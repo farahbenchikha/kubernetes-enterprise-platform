@@ -1,12 +1,12 @@
 # Documentation Technique : Kubernetes Enterprise Platform (VMware & Terraform)
 
-Ce document décrit en détail l'infrastructure, l'architecture cible, la configuration des fichiers de déploiement Terraform, les scripts d'automatisation, ainsi que le guide des commandes et la résolution des problèmes rencontrés.
+Ce document décrit en détail l'infrastructure, l'architecture cible, la configuration des fichiers de déploiement Terraform, les manifestes Kubernetes, les configurations de sécurité (Vault) et de supervision (ELK), ainsi que les guides de commandes et de résolution des problèmes rencontrés.
 
 ---
 
 ## 1. Architecture Cible & Rôle des VMs
 
-L'architecture est composée de 3 machines virtuelles (VMs) sous **Ubuntu Server 22.04/26.04 LTS** hébergées localement sur **VMware Workstation Pro**.
+L'architecture est composée de 3 machines virtuelles (VMs) sous **Ubuntu Server 22.04 LTS** hébergées localement sur **VMware Workstation Pro**, orchestrées par Terraform et Kubernetes pour faire tourner l'application web full-stack **WokMaster**.
 
 ```mermaid
 graph TD
@@ -15,42 +15,59 @@ graph TD
         TF -->|Provisionne via API REST| VM2
         TF -->|Provisionne via API REST| VM3
         KC[kubectl] -->|Gère le cluster| VM2
+        Browser["🌐 Navigateur Windows (Port 30081)"] -.->|Accès Web| Nginx
     end
 
-    subgraph VMware ["VMware Workstation Pro (Dossier local hors OneDrive)"]
-        subgraph VM_ELK ["VM 1 : elk-vault (IP Dynamique)"]
-            ELK[(ELK Stack)]
-            Vault[HashiCorp Vault - Port 8200]
+    subgraph VMware ["VMware Workstation Pro (Réseau NAT 192.168.233.0/24)"]
+        subgraph VM_ELK ["VM 1 : elk-vault (Static IP: 192.168.233.189)"]
+            ES[(Elasticsearch - 9200)]
+            Kibana[Kibana - 5601]
+            Vault[HashiCorp Vault - 8200]
         end
 
-        subgraph VM_Master ["VM 2 : k8s-master (IP Dynamique)"]
+        subgraph VM_Master ["VM 2 : k8s-master (Static IP: 192.168.233.188)"]
             K8s_M[Control Plane / API Server]
-            FB1[Filebeat] -->|Envoie les logs| ELK
         end
 
-        subgraph VM_Worker ["VM 3 : k8s-worker (IP Dynamique)"]
+        subgraph VM_Worker ["VM 3 : k8s-worker (Static IP: 192.168.233.190)"]
             K8s_W[Kubelet / Pods Applicatifs]
-            FB2[Filebeat] -->|Envoie les logs| ELK
+            
+            subgraph Pod_Front ["Pod: Angular Frontend"]
+                Nginx[Nginx Gateway - 80]
+            end
+            
+            subgraph Pod_Back ["Pod: Spring Boot Backend"]
+                Java[Java API - 8081]
+                VA[Vault Agent Sidecar]
+            end
+            
+            subgraph Pod_DB ["Pod: MySQL Database"]
+                MySQL[(MySQL 8.0 - 3306)]
+            end
+            
+            FB[Filebeat] -->|Exporte logs| ES
+            MB[Metricbeat] -->|Exporte métriques| ES
         end
     end
 
+    Pod_Front -->|Redirige /api| Java
+    Java -->|Connexion JDBC| MySQL
+    VA <-->|Authentification & Secrets| Vault
     K8s_W <-->|Réseau CNI Calico| K8s_M
-    K8s_W -->|Récupère secrets| Vault
+    VM_ELK -.->|Route statique de retour via 192.168.233.190| K8s_W
 ```
 
 ### Dimensionnement des Ressources (PC Hôte : 16 Go RAM)
-*   **VM 1 (`elk-vault`)** : 2 vCPUs, 3 Go (3072 Mo) RAM. *Nécessaire car Elasticsearch requiert au moins 2 Go pour s'exécuter de façon stable.*
+*   **VM 1 (`elk-vault`)** : 2 vCPUs, 3 Go (3072 Mo) RAM. *Elasticsearch requiert au moins 2 Go pour s'exécuter de façon stable.*
 *   **VM 2 (`k8s-master`)** : 2 vCPUs, 2 Go (2048 Mo) RAM. *Minimum requis par Kubernetes pour le Control Plane.*
-*   **VM 3 (`k8s-worker`)** : 1 vCPU, 2 Go (2048 Mo) RAM. *Suffisant pour les conteneurs de test.*
+*   **VM 3 (`k8s-worker`)** : 1 vCPU, 2 Go (2048 Mo) RAM. *Suffisant pour héberger l'application WokMaster, MySQL, Filebeat et Metricbeat.*
 
 ---
 
-## 2. Guide des Fichiers Créés
+## 2. Infrastructure as Code (Dossier `/terraform`)
 
-### A. Fichiers Terraform (Dossier `/terraform`)
-
-#### 1. Fichier `providers.tf`
-Ce fichier déclare le connecteur (provider) pour VMware Workstation et configure la connexion à l'API REST locale.
+### 1. Fichier `providers.tf`
+Déclare le connecteur (provider) pour VMware Workstation et configure la connexion à l'API REST locale.
 ```hcl
 terraform {
   required_version = ">= 1.0.0"
@@ -71,8 +88,8 @@ provider "vmworkstation" {
 }
 ```
 
-#### 2. Fichier `variables.tf`
-Il déclare toutes les variables utilisées dans notre code sans leur assigner de valeurs figées.
+### 2. Fichier `variables.tf`
+Déclare toutes les variables sans leur assigner de valeurs figées.
 ```hcl
 variable "vmrest_user" {
   type        = string
@@ -104,20 +121,19 @@ variable "vm_base_dir" {
 }
 ```
 
-#### 3. Fichier `terraform.tfvars`
-Il contient les valeurs réelles et privées de vos variables. *Ce fichier ne doit jamais être partagé sur Git.*
+### 3. Fichier `terraform.tfvars` (Privé)
+Contient les valeurs réelles et privées de vos variables.
 ```hcl
 vmrest_user     = "admin"
-vmrest_password = "Secret123" # Remplacer par votre mot de passe API
+vmrest_password = "Secret123"
 vmrest_url      = "http://127.0.0.1:8697/api"
 base_vm_id      = "JU1HB9H67D6MTFO9GQD12VIU2PJTI40E"
 vm_base_dir     = "C:\\Users\\farah\\Virtual Machines"
 ```
 
-#### 4. Fichier `main.tf`
-Le fichier principal décrivant les 3 VMs clonées à partir de l'identifiant de la machine modèle.
+### 4. Fichier `main.tf`
+Description des 3 VMs clonées à partir de la machine modèle.
 ```hcl
-# 1. Déploiement de la VM ELK & Vault
 resource "vmworkstation_virtual_machine" "elk_vault" {
   sourceid     = var.base_vm_id
   denomination = "elk-vault"
@@ -127,7 +143,6 @@ resource "vmworkstation_virtual_machine" "elk_vault" {
   state        = "on"
 }
 
-# 2. Déploiement du Kubernetes Master (Control Plane)
 resource "vmworkstation_virtual_machine" "k8s_master" {
   sourceid     = var.base_vm_id
   denomination = "k8s-master"
@@ -137,7 +152,6 @@ resource "vmworkstation_virtual_machine" "k8s_master" {
   state        = "on"
 }
 
-# 3. Déploiement du Kubernetes Worker (Data Plane)
 resource "vmworkstation_virtual_machine" "k8s_worker" {
   sourceid     = var.base_vm_id
   denomination = "k8s-worker"
@@ -150,170 +164,280 @@ resource "vmworkstation_virtual_machine" "k8s_worker" {
 
 ---
 
-### B. Scripts de Configuration Interne (Dossier `/scripts`)
+## 3. Configuration Interne & Déploiement Kubernetes
 
-Ces scripts sont prévus pour être exécutés à l'intérieur des VMs Ubuntu Server après leur démarrage.
+### A. Manifestes de Déploiement Applicatif (Dossier `/kubernetes`)
 
-#### 1. Fichier `install_k8s.sh` (Pour `k8s-master` et `k8s-worker`)
-Désactive le swap, configure les modules réseau du noyau, installe le runtime de conteneurs `containerd` et les composants Kubernetes (`kubeadm`, `kubelet`, `kubectl`).
+#### 1. Fichier `mysql-deploy.yaml`
+Déploie MySQL 8.0 en utilisant un stockage local (`hostPath`) sur le Worker pour assurer la persistance des données.
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-db
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-db
+  template:
+    metadata:
+      labels:
+        app: mysql-db
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        ports:
+        - containerPort: 3306
+        env:
+        - name: MYSQL_DATABASE
+          value: mydb
+        - name: MYSQL_USER
+          value: farah
+        - name: MYSQL_PASSWORD
+          value: MySuperSecretDBPassword
+        - name: MYSQL_ROOT_PASSWORD
+          value: MySuperRootPassword
+        volumeMounts:
+        - name: mysql-storage
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: mysql-storage
+        hostPath:
+          path: /mnt/data/mysql
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+  namespace: default
+spec:
+  selector:
+    app: mysql-db
+  ports:
+    - protocol: TCP
+      port: 3306
+      targetPort: 3306
+```
+
+#### 2. Fichier `backend-deploy.yaml`
+Déploie l'API Spring Boot, configure l'accès à MySQL et expose le service via un port NodePort externe pour le Windows hôte.
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-backend
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spring-backend
+  template:
+    metadata:
+      labels:
+        app: spring-backend
+    spec:
+      containers:
+      - name: backend
+        image: farahbenchikha/spring-backend:v1
+        imagePullPolicy: Always
+        command: ["java"]
+        args: ["-Djava.security.egd=file:/dev/./urandom", "-jar", "app.jar"]
+        ports:
+        - containerPort: 8081
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: jdbc:mysql://mysql-service:3306/mydb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+        - name: SPRING_DATASOURCE_USERNAME
+          value: farah
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: MySuperSecretDBPassword
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: default
+spec:
+  type: NodePort
+  selector:
+    app: spring-backend
+  ports:
+    - protocol: TCP
+      port: 8081
+      targetPort: 8081
+      nodePort: 30080
+```
+
+#### 3. Fichier `frontend-deploy.yaml`
+Déploie l'application Angular servie par Nginx et l'expose sur le port `30081`.
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: angular-frontend
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: angular-frontend
+  template:
+    metadata:
+      labels:
+        app: angular-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: farahbenchikha/angular-frontend:v1
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: default
+spec:
+  type: NodePort
+  selector:
+    app: angular-frontend
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30081
+```
+
+---
+
+### B. Configuration de la Sécurité (HashiCorp Vault)
+
+Vault gère les secrets et les injecte automatiquement sous forme de fichiers partagés via un conteneur sidecar dans les pods Kubernetes.
+
+#### 1. Initialisation de l'authentification K8s dans Vault
+```bash
+# Activer la méthode d'authentification Kubernetes
+vault auth enable kubernetes
+
+# Configurer la connexion à l'API Server de Kubernetes
+vault write auth/kubernetes/config \
+    kubernetes_host="https://192.168.233.188:6443" \
+    kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+    token_reviewer_jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token
+```
+
+#### 2. Exemple d'injection via annotations (Sidecar Pattern)
+```yaml
+metadata:
+  annotations:
+    vault.hashicorp.com/agent-inject: "true"
+    vault.hashicorp.com/role: "vault-demo-role"
+    vault.hashicorp.com/agent-inject-secret-config: "secret/data/demo"
+```
+
+---
+
+### C. Configuration de l'Observabilité (ELK Stack)
+
+La supervision est assurée par Filebeat (logs) et Metricbeat (métriques CPU/RAM) déployés en tant que DaemonSets sur les nœuds du cluster.
+
+#### 1. Configuration réseau (Netplan)
+Pour permettre à la VM `elk-vault` de répondre aux agents situés dans le sous-réseau privé des conteneurs Kubernetes (`192.168.0.0/16`), une route statique de retour est déclarée dans `/etc/netplan/00-installer-config.yaml` sur la VM `elk-vault` :
+```yaml
+network:
+  version: 2
+  ethernets:
+    ens33:
+      addresses:
+        - 192.168.233.189/24
+      routes:
+        - to: 192.168.0.0/16
+          via: 192.168.233.190
+```
+
+---
+
+## 4. Scripts d'Automatisation (Dossier `/scripts`)
+
+### 1. Script de Sauvegarde `backup-db.sh`
+Ce script effectue un export à chaud de la base de données MySQL dans Kubernetes et l'enregistre sur le Master.
 ```bash
 #!/bin/bash
-set -e
+BACKUP_DIR="/home/farah/backups"
+DB_USER="farah"
+DB_NAME="mydb"
+DB_PASS="MySuperSecretDBPassword"
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+BACKUP_FILE="${BACKUP_DIR}/${DB_NAME}_backup_${TIMESTAMP}.sql"
 
-# Désactivation permanente du Swap (requis par K8s)
-sudo swapoff -a
-sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+POD_NAME=$(kubectl get pods -l app=mysql-db -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
+if [ -z "$POD_NAME" ]; then
+    echo "❌ Erreur: Impossible de trouver un pod MySQL actif."
+    exit 1
+fi
 
-# Chargement des modules noyau
-cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
-overlay
-br_netfilter
-EOF
-sudo modprobe overlay
-sudo modprobe br_netfilter
+mkdir -p ${BACKUP_DIR}
+kubectl exec -i ${POD_NAME} -- mysqldump --no-tablespaces -u ${DB_USER} -p${DB_PASS} ${DB_NAME} > ${BACKUP_FILE}
 
-# Configuration sysctl
-cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
-net.bridge.bridge-nf-call-iptables  = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-net.ipv4.ip_forward                 = 1
-EOF
-sudo sysctl --system
-
-# Installation de containerd
-sudo apt-get update && sudo apt-get install -y ca-certificates curl gnupg lsb-release
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update && sudo apt-get install -y containerd.io
-
-# Configuration SystemdCgroup pour containerd
-sudo mkdir -p /etc/containerd
-containerd config default | sed 's/SystemdCgroup = false/SystemdCgroup = true/g' | sudo tee /etc/containerd/config.toml > /dev/null
-sudo systemctl restart containerd
-
-# Ajout dépôt K8s & Installation
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
-sudo apt-get update
-sudo apt-get install -y kubelet kubeadm kubectl
-sudo apt-mark hold kubelet kubeadm kubectl
-sudo systemctl enable --now kubelet
+if [ $? -eq 0 ]; then
+    echo "🎉 SAUVEGARDE RÉUSSIE ! Fichier : ${BACKUP_FILE}"
+else
+    echo "❌ Erreur lors de la sauvegarde."
+    exit 1
+fi
 ```
 
-#### 2. Fichier `install_elk.sh` (Pour `elk-vault`)
-Installe Java JRE, ajoute les dépôts officiels Elastic et HashiCorp, puis installe Elasticsearch, Logstash, Kibana, et HashiCorp Vault.
+### 2. Script de Restauration `restore-db.sh`
 ```bash
 #!/bin/bash
-set -e
+DB_USER="farah"
+DB_NAME="mydb"
+DB_PASS="MySuperSecretDBPassword"
 
-sudo apt-get update
-sudo apt-get install -y wget curl gnupg2 apt-transport-https openjdk-17-jre-headless
+if [ -z "$1" ]; then
+    echo "❌ Usage: $0 /chemin/vers/sauvegarde.sql"
+    exit 1
+fi
+BACKUP_FILE="$1"
 
-# Dépôt Elastic
-curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo gpg --dearmor -o /etc/apt/keyrings/elasticsearch-keyring.gpg
-echo "deb [signed-by=/etc/apt/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/8.x/apt stable main" | sudo tee /etc/apt/sources.list.d/elastic-8.x.list
+POD_NAME=$(kubectl get pods -l app=mysql-db -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
+kubectl exec -i ${POD_NAME} -- mysql -u ${DB_USER} -p${DB_PASS} ${DB_NAME} < ${BACKUP_FILE}
 
-# Dépôt HashiCorp (Vault)
-curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/hashicorp-archive-keyring.gpg
-echo "deb [signed-by=/etc/apt/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-
-# Installation et activation des services
-sudo apt-get update
-sudo apt-get install -y elasticsearch kibana logstash vault
-sudo systemctl enable elasticsearch kibana logstash vault
+if [ $? -eq 0 ]; then
+    echo "🎉 RESTAURATION EFFECTUÉE AVEC SUCCÈS !"
+else
+    echo "❌ Erreur lors de la restauration."
+    exit 1
+fi
 ```
 
 ---
 
-### C. Scripts Helpers PowerShell (Dossier `/scripts`)
+## 5. Journal de Résolution des Problèmes (Debugging)
 
-#### 1. Script `get_vms.ps1`
-Sert à récupérer la liste des VMs enregistrées dans l'API VMware REST locale avec leurs identifiants.
-```powershell
-$tfvars = Get-Content -Path "C:\Users\farah\kubernetes-enterprise-platform\terraform\terraform.tfvars"
-$user = ""
-$pass = ""
-$url = ""
-foreach ($line in $tfvars) {
-    if ($line -match 'vmrest_user\s*=\s*"(.*)"') { $user = $Matches[1] }
-    if ($line -match 'vmrest_password\s*=\s*"(.*)"') { $pass = $Matches[1] }
-    if ($line -match 'vmrest_url\s*=\s*"(.*)"') { $url = $Matches[1] }
-}
+### Problème 3 : Blocage d'entropie JVM (Entropy Hang)
+*   **Symptôme** : Le conteneur Spring Boot démarre mais ne produit aucun log et le port `8080/8081` reste fermé.
+*   **Cause** : La JVM a besoin de nombres aléatoires pour initialiser la couche de sécurité (Spring Security, JWT). Sur une machine virtuelle, l'entropie système est insuffisante, bloquant indéfiniment la lecture du fichier `/dev/random`.
+*   **Solution** : Ajouter la variable système `-Djava.security.egd=file:/dev/./urandom` dans les arguments de démarrage Java du manifeste Kubernetes pour utiliser le générateur non-bloquant.
 
-Write-Host "Connexion à $url avec l'utilisateur '$user'..."
-$pair = $user + ":" + $pass
-$bytes = [System.Text.Encoding]::UTF8.GetBytes($pair)
-$base64 = [System.Convert]::ToBase64String($bytes)
-$headers = @{ 
-    Authorization = "Basic $base64"
-    Accept = "application/vnd.vmware.v1+json"
-}
-
-try {
-    $vms = Invoke-RestMethod -Uri "$url/vms" -Headers $headers -Method Get
-    Write-Host "Machines trouvées :" -ForegroundColor Green
-    $vms | Format-Table -Property id, path, denomination
-} catch {
-    Write-Error "Erreur lors de la connexion à l'API : $_"
-}
-```
-
----
-
-## 3. Guide de Commandes PowerShell (Windows Hôte)
-
-Voici l'enchaînement exact des commandes exécutées sur votre ordinateur Windows.
-
-### A. Démarrer le service API REST VMware (Dans une console PowerShell Administrateur)
-```powershell
-# 1. Naviguer dans le dossier d'installation de VMware Workstation
-cd "C:\Program Files (x86)\VMware\VMware Workstation"
-
-# 2. Configurer les identifiants de l'API (à ne faire qu'une seule fois)
-.\vmrest.exe -C
-
-# 3. Démarrer l'API sur le port 8697
-.\vmrest.exe -p 8697
-```
-
-### B. Commandes de dépannage / libération des fichiers (En mode Administrateur)
-Si les fichiers de disques virtuels (`.nvram` ou `.vmdk`) sont verrouillés par des machines en cours d'exécution en tâche de fond :
-```powershell
-# 1. Arrêter les processus VMware en arrière-plan
-Stop-Process -Name "vmware-vmx" -Force
-
-# 2. Arrêter le client de l'API REST de VMware si bloqué
-Stop-Process -Name "vmrest" -Force
-```
-
-### C. Lancement du déploiement Terraform (Dans la console normale du projet)
-```powershell
-# 1. Naviguer dans le dossier Terraform du projet
-cd "C:\Users\farah\kubernetes-enterprise-platform\terraform"
-
-# 2. Initialiser le dossier de travail (téléchargement du provider)
-terraform init
-
-# 3. Vérifier les actions prévues
-terraform plan
-
-# 4. Lancer le déploiement séquentiel (très important pour éviter les conflits d'API)
-terraform apply -parallelism=1
-```
-
----
-
-## 4. Journal de Résolution des Problèmes (Debugging)
-
-### Problème 1 : API VMware REST ne supporte pas la parallélisation
-*   **Symptôme** : Lors du premier `terraform apply`, la création de la VM 1 réussit mais les deux autres échouent avec l'erreur `StatusCode:409 Message:The virtual machine has been locked`.
-*   **Cause** : Par défaut, Terraform crée les ressources en même temps. VMware Workstation verrouille le fichier modèle `ubuntu-base.vmx` pendant qu'il effectue le premier clonage, empêchant les autres d'y accéder.
-*   **Solution** : Utiliser l'argument `-parallelism=1` qui force Terraform à exécuter la recette de manière séquentielle (une machine après l'autre).
-
-### Problème 2 : Conflit et lenteurs avec OneDrive
-*   **Symptôme** : L'API VMware a mis plus de 3 minutes pour cloner une seule machine, provoquant un Timeout (`StatusCode:500 Internal server error`).
-*   **Cause** : Les VMs étaient initialement stockées dans le dossier par défaut de VMware qui se trouvait dans `C:\Users\farah\OneDrive - ESPRIT\Documents\Virtual Machines`. OneDrive tentait de synchroniser les fichiers de disques virtuels de plusieurs gigaoctets au moment même où VMware les créait, saturant les accès disques (E/S).
+### Problème 4 : Erreurs CORS (Cross-Origin Resource Sharing)
+*   **Symptôme** : L'accès à la page d'inscription réussit, mais cliquer sur le bouton de soumission renvoie l'erreur `CORS blocked: Invalid CORS request`.
+*   **Cause** : Le frontend (port `30081`) et le backend (port `30080`) tournent sur des ports différents, ce qui est bloqué par la politique de sécurité des navigateurs.
 *   **Solution** : 
-    1.  Changer l'emplacement par défaut des VMs dans VMware Workstation (Edit -> Preferences -> Workspace -> Default location) pour pointer en local pur hors de OneDrive (`C:\Users\farah\Virtual Machines`).
-    2.  Forcer l'arrêt des processus d'arrière-plan en cours (`Stop-Process -Name "vmware-vmx" -Force`) pour libérer les fichiers `.nvram` verrouillés, puis nettoyer les dossiers créés à moitié.
+    1.  Configurer un **Reverse Proxy Nginx** dans le conteneur Angular pour intercepter `/api/` et le rediriger vers le backend en interne.
+    2.  Ajouter l'option `proxy_set_header Origin "";` dans `nginx.conf` pour forcer Nginx à supprimer l'en-tête de provenance, ce qui désactive le blocage CORS côté Spring Boot.
+
+### Problème 5 : Conflit de type de Service Kubernetes (ClusterIP vers NodePort)
+*   **Symptôme** : Tenter d'appliquer les ports mis à jour via `kubectl apply` génère une erreur d'incompatibilité de type.
+*   **Cause** : Kubernetes n'autorise pas la modification directe d'un service existant de type `ClusterIP` vers `NodePort` si l'IP interne est déjà verrouillée.
+*   **Solution** : Supprimer manuellement l'ancien service (`kubectl delete service backend-service`) puis ré-appliquer le manifeste pour forcer sa recréation.
+
+### Problème 6 : Cache navigateur agressif sur Nginx
+*   **Symptôme** : Même après la mise à jour de l'image Docker du Frontend, la page par défaut "Welcome to Nginx !" continue de s'afficher sur le port `30081`.
+*   **Cause** : Chrome garde agressivement en cache la page statique d'accueil par défaut de Nginx.
+*   **Solution** : Effectuer un rafraîchissement complet en vidant le cache du navigateur avec le raccourci **`Ctrl + F5`** ou en ouvrant une nouvelle fenêtre de Navigation Privée.
