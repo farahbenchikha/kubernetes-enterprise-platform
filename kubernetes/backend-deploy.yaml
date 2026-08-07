@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-backend
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spring-backend
+  template:
+    metadata:
+      labels:
+        app: spring-backend
+    spec:
+      containers:
+      - name: backend
+        image: farahbenchikha/spring-backend:v1  #l'image sur docker hub 
+        imagePullPolicy: Always
+        #  FORCE LA COMMANDE JAVA EN MODE NON-BLOQUANT
+        command: ["java"]
+        args: ["-Djava.security.egd=file:/dev/./urandom", "-jar", "app.jar"]
+        ports:
+        # variables d'environnement pour ecraser la config spring boot si necessaire 
+        - containerPort: 8081
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: jdbc:mysql://mysql-service:3306/mydb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+        - name: SPRING_DATASOURCE_USERNAME
+          value: farah
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: MySuperSecretDBPassword
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: default
+spec:
+  type: NodePort 
+  selector:
+    app: spring-backend
+  ports:
+    - protocol: TCP
+      port: 8081
+      targetPort: 8081
+      nodePort: 30080

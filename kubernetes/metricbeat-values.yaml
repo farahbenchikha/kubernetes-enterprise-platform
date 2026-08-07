@@ -1,0 +1,44 @@
+# Optimisation RAM : on désactive la collecte globale (Kubernetes state) 
+# pour ne garder que la surveillance locale de chaque VM (Node & Pods CPU/RAM).
+deployment:
+  enabled: false
+
+daemonset:
+  metricbeatConfig:
+    metricbeat.yml: |
+      metricbeat.modules:
+      # Module pour surveiller le système d'exploitation de la VM (CPU/RAM/Disque)
+      - module: system
+        period: 10s
+        metricsets:
+          - cpu
+          - load
+          - memory
+          - network
+          - filesystem
+        process.include_top_n:
+          by_cpu: 5
+          by_memory: 5
+
+      # Module pour surveiller l'activité des conteneurs dans Kubernetes
+      - module: kubernetes
+        period: 10s
+        node: ${NODE_NAME}
+        hosts: ["https://${NODE_NAME}:10250"]
+        ssl.verification_mode: "none"
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        ssl.certificate_authorities:
+          - /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        metricsets:
+          - node
+          - system
+          - pod
+          - container
+          - volume
+
+      # Envoi des données vers notre VM externe ELK
+      output.elasticsearch:
+        hosts: ["https://192.168.233.189:9200"]
+        username: "elastic"
+        password: "i1*I_3YeN5XP933Wj9Gk"
+        ssl.verification_mode: "none"

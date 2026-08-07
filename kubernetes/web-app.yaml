@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-web
+  namespace: default
+  labels:
+    app: web
+spec:
+  replicas: 2 # On lance 2 conteneurs identiques pour la haute disponibilité
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine # Version ultra-légère de Nginx
+        ports:
+        - containerPort: 80
+        resources:
+          limits:
+            memory: "128Mi" # Limite de RAM à 128 Mo pour préserver nos VMs
+            cpu: "200m"     # Limite de CPU à 20% d'un cœur
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  namespace: default
+spec:
+  type: NodePort # Expose l'application à l'extérieur du cluster sur un port physique
+  selector:
+    app: web
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080 # Port physique sur lequel on va se connecter depuis Windows
