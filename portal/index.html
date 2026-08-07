@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes Enterprise Platform (KEP)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&family=Fira+Code:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #060a12;
+            --sidebar-bg: #090f1d;
+            --card-bg: rgba(15, 23, 42, 0.6);
+            --border-color: rgba(30, 41, 59, 0.8);
+            --text-color: #94a3b8;
+            --text-light: #f8fafc;
+            
+            /* Couleurs Outils */
+            --color-terraform: #8449c2;
+            --color-ansible: #5bb974;
+            --color-k8s: #326ce5;
+            --color-vault: #f1ad1b;
+            --color-elastic: #00bfb3;
+            --color-docker: #2496ed;
+            --color-argocd: #ff5722;
+            --color-discord: #5865f2;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow-x: hidden;
+            display: flex;
+            min-height: 100vh;
+        }
+
+        #bg-canvas {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -1; pointer-events: none;
+        }
+
+        /* Barre latérale de navigation */
+        .sidebar {
+            width: 280px;
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            height: 100vh;
+            position: fixed;
+            top: 0; left: 0;
+            display: flex;
+            flex-direction: column;
+            padding: 30px 20px;
+            z-index: 10;
+        }
+
+        .sidebar h2 {
+            font-size: 1.3rem;
+            color: var(--text-light);
+            margin-bottom: 25px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 800;
+            background: linear-gradient(90deg, #3b82f6, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .sidebar-menu {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            list-style: none;
+            overflow-y: auto;
+        }
+
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 15px;
+            color: #64748b;
+            text-decoration: none;
+            font-weight: 600;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            font-size: 0.95rem;
+            cursor: pointer;
+        }
+
+        .sidebar-link:hover, .sidebar-link.active {
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--text-light);
+            border-left: 4px solid #3b82f6;
+        }
+
+        /* Contenu principal */
+        .main-content {
+            margin-left: 280px;
+            width: calc(100% - 280px);
+            padding: 40px;
+            position: relative;
+        }
+
+        @media (max-width: 1024px) {
+            body { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; position: relative; border-right: none; border-bottom: 1px solid var(--border-color); }
+            .main-content { margin-left: 0; width: 100%; padding: 20px; }
+        }
+
+        header {
+            margin-bottom: 40px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 25px;
+        }
+
+        header h1 {
+            font-size: 2.8rem;
+            font-weight: 800;
+            color: var(--text-light);
+            margin-bottom: 8px;
+        }
+
+        header p { font-size: 1.1rem; color: #64748b; }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 35px;
+            margin-bottom: 40px;
+            backdrop-filter: blur(12px);
+        }
+
+        .card h2 {
+            font-size: 1.8rem;
+            color: var(--text-light);
+            margin-bottom: 20px;
+            border-left: 5px solid #3b82f6;
+            padding-left: 15px;
+        }
+
+        .card h3 {
+            font-size: 1.3rem;
+            color: var(--text-light);
+            margin-top: 25px;
+            margin-bottom: 15px;
+        }
+
+        p { line-height: 1.7; font-size: 0.98rem; margin-bottom: 15px; }
+        ul { margin-left: 25px; margin-bottom: 15px; line-height: 1.7; }
+        li { margin-bottom: 5px; }
+
+        /* Grille des outils */
+        .tools-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            margin: 25px 0;
+        }
+
+        .tool-box {
+            background: rgba(8, 12, 20, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            border-bottom: 3px solid #1e293b;
+        }
+
+        .tool-box.t-tf { border-bottom-color: var(--color-terraform); }
+        .tool-box.t-ansible { border-bottom-color: var(--color-ansible); }
+        .tool-box.t-k8s { border-bottom-color: var(--color-k8s); }
+        .tool-box.t-vault { border-bottom-color: var(--color-vault); }
+        .tool-box.t-elastic { border-bottom-color: var(--color-elastic); }
+        .tool-box.t-docker { border-bottom-color: var(--color-docker); }
+        .tool-box.t-argocd { border-bottom-color: var(--color-argocd); }
+
+        .tool-box h4 { color: var(--text-light); margin-bottom: 8px; font-size: 1.1rem; }
+
+        /* Galerie captures */
+        .screenshot-box {
+            background: #04060b;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 15px;
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .screenshot-box img { max-width: 100%; border-radius: 8px; max-height: 250px; opacity: 0.85; transition: opacity 0.3s; }
+        .screenshot-box:hover img { opacity: 1; }
+        .screenshot-box span { margin-top: 10px; font-size: 0.85rem; font-weight: 600; color: #3b82f6; }
+
+        /* Code et Commandes */
+        .cmd-box {
+            background: #020408;
+            border-left: 4px solid #10b981;
+            padding: 15px;
+            border-radius: 0 8px 8px 0;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.9rem;
+            color: #34d399;
+            margin: 15px 0;
+            position: relative;
+        }
+
+        .cmd-box button {
+            position: absolute;
+            top: 10px; right: 10px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .cmd-box button:hover { background: #10b981; color: #fff; }
+
+        pre {
+            background: #020408;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            overflow-x: auto;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            max-height: 400px;
+            margin-top: 15px;
+            position: relative;
+        }
+
+        pre code { color: #f1f5f9; }
+        .code-lang { position: absolute; top: 10px; right: 20px; font-size: 0.7rem; font-weight: 600; color: #64748b; text-transform: uppercase; }
+
+        /* Lightbox modal */
+        .lightbox {
+            display: none; position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(2, 4, 8, 0.97); z-index: 1000;
+            justify-content: center; align-items: center;
+            flex-direction: column; backdrop-filter: blur(10px);
+        }
+
+        .lightbox img { max-width: 90%; max-height: 80%; border-radius: 12px; border: 2px solid var(--border-color); }
+        .lightbox-caption { color: var(--text-light); margin-top: 20px; font-size: 1.2rem; font-weight: 600; }
+        .close-lightbox { position: absolute; top: 20px; right: 30px; color: #94a3b8; font-size: 2.5rem; cursor: pointer; }
+
+        /* Sections des Pannes */
+        .problem-card {
+            border-left: 4px solid #ef4444;
+            background: rgba(239, 68, 68, 0.03);
+            padding: 25px;
+            border-radius: 0 16px 16px 0;
+            margin-bottom: 30px;
+            border: 1px solid var(--border-color);
+            border-left-width: 4px;
+        }
+
+        .problem-card h3 { color: #f87171; margin-bottom: 12px; }
+        .solution-card {
+            border-left: 4px solid #10b981;
+            background: rgba(16, 185, 129, 0.03);
+            padding: 20px;
+            border-radius: 0 12px 12px 0;
+            margin-top: 15px;
+            border: 1px solid var(--border-color);
+            border-left-width: 4px;
+        }
+
+        .solution-card h4 { color: #34d399; margin-bottom: 8px; }
+
+        /* Vidéos */
+        .video-wrapper {
+            position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden;
+            border-radius: 12px; border: 1px solid var(--border-color); background: #000;
+        }
+        .video-wrapper video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+        /* Grille pour la cohérence des outils */
+        .coherence-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 25px;
+            margin-top: 30px;
+        }
+
+        /* Carte générique avec Glassmorphism et transition */
+        .coherence-card {
+            background: rgba(15, 23, 42, 0.4);
+            border: 1px solid rgba(30, 41, 59, 0.8);
+            border-radius: 12px;
+            padding: 25px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+            backdrop-filter: blur(10px);
+        }
+
+        .coherence-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; bottom: 0;
+            width: 4px;
+            transition: all 0.3s ease;
+        }
+
+        /* Styles et ombres Néon au survol par outil */
+        .coherence-card.c-tf::before { background: var(--color-terraform); }
+        .coherence-card.c-tf:hover { 
+            border-color: var(--color-terraform); 
+            box-shadow: 0 10px 25px rgba(132, 73, 194, 0.2); 
+            transform: translateY(-5px); 
+        }
+
+        .coherence-card.c-k8s::before { background: var(--color-k8s); }
+        .coherence-card.c-k8s:hover { 
+            border-color: var(--color-k8s); 
+            box-shadow: 0 10px 25px rgba(50, 108, 229, 0.2); 
+            transform: translateY(-5px); 
+        }
+
+        .coherence-card.c-vault::before { background: var(--color-vault); }
+        .coherence-card.c-vault:hover { 
+            border-color: var(--color-vault); 
+            box-shadow: 0 10px 25px rgba(241, 173, 27, 0.2); 
+            transform: translateY(-5px); 
+        }
+
+        .coherence-card.c-elk::before { background: var(--color-elastic); }
+        .coherence-card.c-elk:hover { 
+            border-color: var(--color-elastic); 
+            box-shadow: 0 10px 25px rgba(0, 191, 179, 0.2); 
+            transform: translateY(-5px); 
+        }
+
+        .coherence-card.c-argocd::before { background: var(--color-argocd); }
+        .coherence-card.c-argocd:hover { 
+            border-color: var(--color-argocd); 
+            box-shadow: 0 10px 25px rgba(255, 87, 34, 0.2); 
+            transform: translateY(-5px); 
+        }
+
+        .coherence-card h4 {
+            color: #fff;
+            font-size: 1.15rem;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+
+        .coherence-card p {
+            font-size: 0.92rem;
+            line-height: 1.6;
+            color: #94a3b8;
+        }
+
+        /* Filigrane en arrière-plan (Chiffre géant) */
+        .coherence-number {
+            position: absolute;
+            top: -10px; right: -5px;
+            font-size: 4.5rem;
+            font-weight: 900;
+            opacity: 0.03;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+
+        .coherence-card:hover .coherence-number {
+            opacity: 0.12;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="bg-canvas"></canvas>
+
+    <!-- Menu Latéral -->
+    <div class="sidebar">
+        <h2>Soutenance Stage</h2>
+        <ul class="sidebar-menu">
+            <a onclick="showSection('intro')" class="sidebar-link active" id="l-intro">🎯 Sujet & Objectifs</a>
+            <a onclick="showSection('tools')" class="sidebar-link" id="l-tools">🛠️ Boîte à Outils</a>
+            <a onclick="showSection('arch')" class="sidebar-link" id="l-arch">🏗️ Architecture</a>
+            <a onclick="showSection('step1')" class="sidebar-link" id="l-step1">1. VM Provisioning</a>
+            <a onclick="showSection('step2')" class="sidebar-link" id="l-step2">2. Cluster K8s</a>
+            <a onclick="showSection('step3')" class="sidebar-link" id="l-step3">3. Observabilité (ELK)</a>
+            <a onclick="showSection('step4')" class="sidebar-link" id="l-step4">4. Coffre Vault</a>
+            <a onclick="showSection('step5')" class="sidebar-link" id="l-step5">5. GitOps (ArgoCD)</a>
+            <a onclick="showSection('step6')" class="sidebar-link" id="l-step6">6. Backups & Alertes</a>
+            <a onclick="showSection('pannes')" class="sidebar-link" id="l-pannes">⚠️ Pannes Résolues</a>
+            <a onclick="showSection('demo')" class="sidebar-link" id="l-demo">🎥 Démos Vidéos</a>
+        </ul>
+    </div>
+
+    <!-- Contenu Principal -->
+    <div class="main-content">
+        
+        <!-- Section Introduction -->
+        <div id="intro" class="tab-section active">
+            <header>
+                <h1>Kubernetes Enterprise Platform (KEP)</h1>
+                <p>Plateforme d'orchestration de conteneurs entreprise avec haute disponibilité, sécurité et observabilité</p>
+            </header>
+            <div class="card">
+                <h2>Le Contexte du Stage (Cloud & Cybersécurité)</h2>
+                <p>Ce stage s'inscrit dans la mise en situation réelle de conception, déploiement et exploitation d'une solution professionnelle d'orchestration. La plateforme <strong>Kubernetes Enterprise Platform (KEP)</strong> accueille et isole l'application microservices de test <strong>WokMaster</strong> (Angular & Spring Boot) afin de valider ses fonctionnalités de haute disponibilité, de sécurité des secrets (Vault) et de centralisation des logs (ELK).</p>
+            </div>
+        </div> <!-- 👈 BALISE DE FERMETURE CORRIGÉE ICI -->
+
+        <!-- Section Outils -->
+        <div id="tools" class="tab-section" style="display:none;">
+            <header>
+                <h1>🛠️ Boîte à Outils DevOps</h1>
+                <p>La suite logicielle composant la plateforme d'infrastructure</p>
+            </header>
+            <div class="card">
+                <h2>La Suite Technologique Déployée</h2>
+                <p>Chaque outil a été sélectionné pour sa robustesse industrielle et s'intègre de façon cohérente dans le pipeline d'automatisation.</p>
+                
+                <div class="tools-grid">
+                    <div class="tool-box t-tf">
+                        <h4>Terraform</h4>
+                        <p>Provisioning de l'infrastructure virtuelle sous VMware Workstation.</p>
+                    </div>
+                    <div class="tool-box t-ansible">
+                        <h4>Ansible</h4>
+                        <p>Configuration des serveurs et installation de Docker et de Kubernetes.</p>
+                    </div>
+                    <div class="tool-box t-k8s">
+                        <h4>Kubernetes</h4>
+                        <p>Orchestrateur de conteneurs pour la haute disponibilité.</p>
+                    </div>
+                    <div class="tool-box t-vault">
+                        <h4>HashiCorp Vault</h4>
+                        <p>Gestion sécurisée des secrets et injection dynamique.</p>
+                    </div>
+                    <div class="tool-box t-elastic">
+                        <h4>Kibana & ELK</h4>
+                        <p>Centralisation et indexation des journaux (Logs).</p>
+                    </div>
+                    <div class="tool-box t-docker">
+                        <h4>Docker</h4>
+                        <p>Création d'images multi-stage pour Angular et Spring Boot.</p>
+                    </div>
+                    <div class="tool-box t-argocd">
+                        <h4>ArgoCD</h4>
+                        <p>Déploiement continu automatisé basé sur le GitOps.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section Architecture (CORRIGÉE ET ENVELOPPÉE DANS SON ONGLÈTE) -->
+        <div id="arch" class="tab-section" style="display:none;">
+            
+            <!-- Carte 1 : Image de l'Architecture réelle -->
+            <div class="card">
+                <h2>🏗️ Schéma d'Architecture Général</h2>
+                <p>Voici l'illustration graphique de la structure globale de notre plateforme DevOps (VMs, conteneurs, agents d'observabilité et coffre-fort de sécurité).</p>
+                
+                <div class="screenshot-box" onclick="zoomImage('assets/architecture.png', 'Schéma d\'architecture globale de l\'infrastructure KEP')">
+                    <img src="assets/architecture.png" alt="Architecture Générale" style="max-height: 480px; height: auto; width: auto; max-width: 100%;">
+                    <span>Agrandir le schéma d'architecture 🔍</span>
+                </div>
+            </div>
+
+            <!-- Carte 3 : Cohérence des outils sous forme de cartes animées -->
+            <div class="card">
+                <h3 style="color: #fff; border-left: 4px solid #10b981; padding-left: 10px;">🎯 Cohérence Globale de la Chaîne d'Outils (DevOps Toolchain)</h3>
+                <p style="margin-top: 15px;">L'ensemble des technologies sélectionnées ne se contente pas de coexister ; elles forment un <strong>écosystème DevOps fermé et automatisé</strong> :</p>
+                
+                <div class="coherence-grid">
+                    
+                    <div class="coherence-card c-tf">
+                        <div class="coherence-number">01</div>
+                        <h4>IaC & Configuration</h4>
+                        <p><strong>Terraform & Ansible :</strong> Terraform dresse l'infrastructure virtuelle brute (VMs, CPU, RAM) et Ansible prend le relais pour configurer l'OS et le cluster, éliminant l'erreur humaine.</p>
+                    </div>
+
+                    <div class="coherence-card c-k8s">
+                        <div class="coherence-number">02</div>
+                        <h4>Orchestration</h4>
+                        <p><strong>Docker & Kubernetes :</strong> Docker encapsule le code dans des images optimisées (multi-stage), et Kubernetes orchestre et maintient les conteneurs en haute disponibilité.</p>
+                    </div>
+
+                    <div class="coherence-card c-vault">
+                        <div class="coherence-number">03</div>
+                        <h4>Sécurité DevSecOps</h4>
+                        <p><strong>HashiCorp Vault :</strong> Aucun mot de passe n'est écrit en clair. Le backend Spring Boot récupère ses accès MySQL de façon éphémère en mémoire vive via le Vault Injector.</p>
+                    </div>
+
+                    <div class="coherence-card c-elk">
+                        <div class="coherence-number">04</div>
+                        <h4>Observabilité</h4>
+                        <p><strong>Filebeat & Pile ELK :</strong> Filebeat extrait les logs de tous les pods à la volée pour les stocker dans Elasticsearch, permettant leur analyse historique sur Kibana.</p>
+                    </div>
+
+                    <div class="coherence-card c-argocd">
+                        <div class="coherence-number">05</div>
+                        <h4>Mise en Prod Continue</h4>
+                        <p><strong>GitOps (ArgoCD) :</strong> Le dépôt GitHub est la source unique de vérité. Toute modification réaligne le cluster en 3 secondes, éliminant la dérive de configuration.</p>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Section Etape 1 -->
+        <div id="step1" class="tab-section" style="display:none;">
+            <header>
+                <h1>1. Provisioning IaC (Terraform)</h1>
+                <p>Déploiement reproductible de l'infrastructure sous VMware</p>
+            </header>
+            <div class="card">
+                <h2>Automatisation du clonage de machines</h2>
+                <p>Pour piloter l'API Rest locale de VMware Workstation Pro (<code>vmrest.exe</code>), nous déclarons nos ressources dans un script Terraform. Le clonage s'effectue à partir d'un modèle d'OS Ubuntu Server préalablement installé.</p>
+                
+                <div class="cmd-box">
+                    <span>powershell</span>
+                    <code>cd C:\Users\farah\kubernetes-enterprise-platform\terraform<br>terraform init<br>terraform apply -parallelism=1</code>
+                    <button onclick="copyCmd(this)">Copier</button>
+                </div>
+
+                <pre><code class="language-hcl"># Extrait de C:\Users\farah\kubernetes-enterprise-platform\terraform\main.tf
+resource "vmworkstation_virtual_machine" "k8s-worker" {
+  sourceid     = var.base_vm_id
+  denomination = "k8s-worker"
+  path         = "${var.vm_base_dir}\\k8s-worker\\k8s-worker.vmx"
+  processors   = 1
+  memory       = 4096
+  state        = "on"
+}</code><span class="code-lang">main.tf</span></pre>
+
+                <div class="screenshot-box" onclick="zoomImage('assets/01_terraform.png', 'Plan de création des 3 VMs Terraform appliqué avec succès')">
+                    <img src="assets/01_terraform.png" alt="Terraform Plan">
+                    <span>Agrandir la capture d'écran (Terraform apply) 🔍</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section Etape 2 -->
+        <div id="step2" class="tab-section" style="display:none;">
+            <header>
+                <h1>2. Initialisation du Cluster Kubernetes</h1>
+                <p>Jonction des nœuds de calcul et activation du réseau Calico</p>
+            </header>
+            <div class="card">
+                <h2>Configuration du Control Plane et du Worker</h2>
+                <p>Ansible exécute un playbook qui prépare l'OS (désactivation du Swap, chargement des modules noyau <code>br_netfilter</code> et paramétrage de <code>containerd</code>).</p>
+                
+                <h3>Commandes d'initialisation sur k8s-master :</h3>
+                <div class="cmd-box">
+                    <span>bash</span>
+                    <code>sudo kubeadm init --pod-network-cidr=192.168.0.0/16 --apiserver-advertise-address=192.168.233.188</code>
+                    <button onclick="copyCmd(this)">Copier</button>
+                </div>
+
+                <h3>Calico CNI Installation :</h3>
+                <div class="cmd-box">
+                    <span>bash</span>
+                    <code>kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/calico.yaml</code>
+                    <button onclick="copyCmd(this)">Copier</button>
+                </div>
+
+                <div class="screenshot-box" onclick="zoomImage('assets/02_vms.png', 'Les machines virtuelles démarrées et prêtes pour le cluster')">
+                    <img src="assets/02_vms.png" alt="Nodes Status">
+                    <span>Agrandir la capture d'écran (VMs Actives) 🔍</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section Etape 3 -->
+        <div id="step3" class="tab-section" style="display:none;">
+            <header>
+                <h1>3. Observabilité Centralisée (ELK)</h1>
+                <p>Indexation des journaux conteneurs en temps réel</p>
+            </header>
+            <div class="card">
+                <h2>Collecte des logs avec Filebeat</h2>
+                <p>Le conteneur Filebeat tourne en tâche de fond sur chaque nœud, lit les logs consoles bruts et les envoie à Elasticsearch.</p>
+                
+                <pre><code class="language-yaml"># filebeat-values.yaml
+filebeatConfig:
+  filebeat.yml: |
+    filebeat.inputs:
+    - type: container
+      paths:
+        - /var/log/containers/*.log
+    output.elasticsearch:
+      hosts: ["https://192.168.233.189:9200"]
+      username: "elastic"
+      password: "i1*I_3YeN5XP933Wj9Gk"
+      ssl.verification_mode: "none"</code><span class="code-lang">filebeat-values.yaml</span></pre>
+
+                <div class="screenshot-box" onclick="zoomImage('assets/06_kibana.png', 'Visualisation des logs de l\'application dans Kibana')">
+                    <img src="assets/06_kibana.png" alt="Kibana Logs">
+                    <span>Agrandir la capture d'écran (Kibana Logs) 🔍</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section Etape 4 -->
+        <div id="step4" class="tab-section" style="display:none;">
+            <header>
+                <h1>4. Coffre-fort & Sécurité (Vault)</h1>
+                <p>Intégration Kubernetes et injection de secrets à la volée</p>
+            </header>
+            <div class="card">
+                <h2>Déverrouillage et authentification deleguée</h2>
+                <p>À chaque redémarrage, Vault doit être déverrouillé à l'aide d'au moins 3 clés différentes.</p>
+                
+                <div class="cmd-box">
+                    <span>bash</span>
+                    <code>export VAULT_SKIP_VERIFY=true<br>vault operator unseal</code>
+                    <button onclick="copyCmd(this)">Copier</button>
+                </div>
+
+                <div class="screenshot-box" onclick="zoomImage('assets/05_vault.png', 'Processus de saisie des clés d\'unseal Vault')">
+                    <img src="assets/05_vault.png" alt="Vault Unseal">
+                    <span>Agrandir la capture d'écran (Vault Unseal) 🔍</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section Etape 5 -->
+        <div id="step5" class="tab-section" style="display:none;">
+            <header>
+                <h1>5. Déploiement Continu GitOps (ArgoCD)</h1>
+                <p>Le code source Git comme pilote de votre infrastructure</p>
+            </header>
+            <div class="card">
+                <h2>Gestion déclarative de l'application WokMaster</h2>
+                <p>ArgoCD compare l'état défini sur GitHub avec l'état en cours d'exécution. Il déploie la base de données MySQL, l'API Java Spring et le site web Angular.</p>
+                
+                <pre><code class="language-yaml"># argocd-app.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: wokmaster-gitops
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/farahbenchikha/kubernetes-enterprise-platform.git'
+    targetRevision: main
+    path: kubernetes
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true</code><span class="code-lang">argocd-app.yaml</span></pre>
+
+                <div class="screenshot-box" onclick="zoomImage('assets/07_argocd.png', 'Tableau de bord interactif d\'ArgoCD vert et synchronisé')">
+                    <img src="assets/07_argocd.png" alt="ArgoCD Screen">
+                    <span>Agrandir la capture d'écran (ArgoCD Sync Tree) 🔍</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section Etape 6 -->
+        <div id="step6" class="tab-section" style="display:none;">
+            <header>
+                <h1>6. Sauvegardes & Alertes Réseau</h1>
+                <p>Routines de sécurité et notifications d'événements</p>
+            </header>
+            <div class="card">
+                <h2>Sauvegarde de Base MySQL & Alertes Discord</h2>
+                <p>Un script de sauvegarde logical backup <code>backup-db.sh</code> se connecte de façon autonome au pod MySQL actif, exécute <code>mysqldump</code> avec l'option <code>--no-tablespaces</code> et stocke le fichier <code>.sql</code> horodaté sur la VM.</p>
+                
+                <div class="cmd-box">
+                    <span>bash</span>
+                    <code>chmod +x backup-db.sh<br>./backup-db.sh</code>
+                    <button onclick="copyCmd(this)">Copier</button>
+                </div>
+
+                <div class="screenshot-box" onclick="zoomImage('assets/09_discord.png', 'Alertes du cluster reçues instantanément sur le salon Discord')">
+                    <img src="assets/09_discord.png" alt="Discord alerts">
+                    <span>Agrandir la capture d'écran (Alertes Discord) 🔍</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section Pannes -->
+        <div id="pannes" class="tab-section" style="display:none;">
+            <header>
+                <h1>⚠️ Résolution des Pannes de Production</h1>
+                <p>Les défis techniques résolus durant le déploiement de la plateforme</p>
+            </header>
+            <div class="card">
+                <h2>Rapport de Dépannage Ingénieur</h2>
+
+                <div class="problem-card">
+                    <h3>1. Erreur d'accès réseau I/O Timeout vers Vault</h3>
+                    <p><strong>Problématique :</strong> Les pods applicatifs du Worker (192.168.254.xxx) n'arrivaient pas à se connecter à la VM Vault externe (192.168.233.189). La VM Vault ignorait la route de retour et jetait les paquets.</p>
+                    <div class="solution-card">
+                        <h4>Solution technique appliquée</h4>
+                        <p>Ajout d'une route statique pérenne sur la table de routage de la VM <code>elk-vault</code> :<br>
+                        <code>sudo ip route add 192.168.0.0/16 via 192.168.233.190</code></p>
+                    </div>
+                </div>
+
+                <div class="problem-card">
+                    <h3>2. Conflit d'allocation de ports NodePort sous ArgoCD</h3>
+                    <p><strong>Problématique :</strong> ArgoCD refusait de valider la synchronisation en déclarant : <code>NodePort 30080 is already allocated</code> car Nginx et Spring Boot Backend visaient le même port physique.</p>
+                    <div class="solution-card">
+                        <h4>Solution technique appliquée</h4>
+                        <p>Modification de <code>web-app.yaml</code> pour isoler l'application de test Nginx sur le port <code>30082</code>, libérant la connexion de l'API sur le port <code>30080</code>.</p>
+                    </div>
+                </div>
+
+                <div class="problem-card">
+                    <h3>3. Erreur DNS interne de Kubernetes (Server Misbehaving)</h3>
+                    <p><strong>Problématique :</strong> Kubewatch ne parvenait pas à envoyer ses alertes vers l'API de Discord car CoreDNS transmettait les requêtes à l'hôte local inatteignable <code>127.0.0.53</code>.</p>
+                    <div class="solution-card">
+                        <h4>Solution technique appliquée</h4>
+                        <p>Patch de la ConfigMap de CoreDNS pour forcer l'utilisation de DNS publics :<br>
+                        <code>kubectl get configmap coredns -n kube-system -o yaml | sed 's/forward . \/etc\/resolv.conf/forward . 8.8.8.8 1.1.1.1/g' | kubectl apply -f -</code></p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Section Vidéos -->
+        <div id="demo" class="tab-section" style="display:none;">
+            <header>
+                <h1>🎥 Galerie Vidéo de Démonstrations</h1>
+                <p>Preuve visuelle et dynamique du fonctionnement de la plateforme</p>
+            </header>
+            <div class="card">
+                <h2>Parcours de l'Application WokMaster</h2>
+                <div class="video-wrapper">
+                    <video controls>
+                        <source src="assets/demo_wokmaster.mp4" type="video/mp4">
+                        Votre navigateur ne supporte pas la lecture de cette vidéo.
+                    </video>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Lightbox Zoom -->
+    <div class="lightbox" id="lightbox" onclick="closeZoom()">
+        <span class="close-lightbox">&times;</span>
+        <img src="" id="lightbox-img" alt="Zoom">
+        <div class="lightbox-caption" id="lightbox-caption"></div>
+    </div>
+
+    <script>
+        // Etoiles animées en tâche de fond
+        const canvas = document.getElementById('bg-canvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        class Particle {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 2;
+                this.speedX = Math.random() * 0.15 - 0.075;
+                this.speedY = Math.random() * 0.15 - 0.075;
+            }
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                if (this.x < 0 || this.x > canvas.width) this.speedX *= -1;
+                if (this.y < 0 || this.y > canvas.height) this.speedY *= -1;
+            }
+            draw() {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        for (let i = 0; i < 55; i++) particles.push(new Particle());
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => { p.update(); p.draw(); });
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+        // Système de navigation par section
+        function showSection(sectionId) {
+            document.querySelectorAll('.tab-section').forEach(sec => {
+                sec.style.display = 'none';
+            });
+            document.querySelectorAll('.sidebar-link').forEach(link => {
+                link.classList.remove('active');
+            });
+            
+            document.getElementById(sectionId).style.display = 'block';
+            document.getElementById('l-' + sectionId).classList.add('active');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // Zoom image
+        function zoomImage(src, caption) {
+            const lb = document.getElementById('lightbox');
+            const img = document.getElementById('lightbox-img');
+            const cap = document.getElementById('lightbox-caption');
+            img.src = src;
+            cap.innerText = caption;
+            lb.style.display = 'flex';
+        }
+
+        function closeZoom() {
+            document.getElementById('lightbox').style.display = 'none';
+        }
+
+        // Copier les commandes
+        function copyCmd(btn) {
+            const code = btn.parentElement.querySelector('code').innerText;
+            navigator.clipboard.writeText(code).then(() => {
+                const originalText = btn.innerText;
+                btn.innerText = 'Copié !';
+                setTimeout(() => { btn.innerText = originalText; }, 2000);
+            });
+        }
+    </script>
+</body>
+</html>
