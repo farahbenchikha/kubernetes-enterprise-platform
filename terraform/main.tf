@@ -23,6 +23,6 @@ resource "vmworkstation_virtual_machine" "k8s-worker" {
   denomination = "k8s-worker"
   path = "${var.vm_base_dir}\\k8s-worker\\k8s-worker.vmx"
   processors = 1
-  memory = 2048
+  memory = 4096
   state = "on"
 }
